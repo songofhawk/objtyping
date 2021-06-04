@@ -100,7 +100,7 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
     elif is_basic_type(dict_list_obj):
         if clazz is None:
             return dict_list_obj
-        elif isinstance(dict_list_obj, clazz):
+        elif type(dict_list_obj) == clazz:
             return dict_list_obj
         else:
             return clazz(dict_list_obj)
