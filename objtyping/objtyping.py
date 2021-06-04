@@ -1,5 +1,7 @@
 import inspect
-from typing import get_type_hints
+from typing import get_type_hints, TypeVar
+
+T = TypeVar('T')
 
 
 class DataObject(object):
@@ -26,7 +28,7 @@ def has_init_argument(clazz):
     return False
 
 
-def from_dict_list(dict_list_obj, clazz, reserve_extra_attr=True, init_empty_attr=True):
+def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_attr=True) -> T:
     """
     把CommentedMap-CommentedSeq结构的yaml对象（树状结构），转换为预定义好类型的类实例，
     本函数是个递归函数，将按深度优先遍历yaml树的所有节点，并逐级对应到clazz指定的类属性中
@@ -72,7 +74,7 @@ def from_dict_list(dict_list_obj, clazz, reserve_extra_attr=True, init_empty_att
 
     elif isinstance(dict_list_obj, dict):
         if has_init_argument(clazz):
-            raise TypeError('类 {} 的构造函数需要参数，无法通过CommentedMap实例化！\r\n {}'.format(clazz.__name__, dict_list_obj))
+            raise TypeError('类 {} 的构造函数需要参数，无法通过dict实例化！\r\n {}'.format(clazz.__name__, dict_list_obj))
         if clazz is None:
             obj = DataObject()
             types = None
@@ -138,5 +140,3 @@ def to_dict_list(obj):
         for k, v in obj.__dict__.items():
             dict1[k] = to_dict_list(v)
         return dict1
-
-
