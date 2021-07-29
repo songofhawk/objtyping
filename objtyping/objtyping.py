@@ -1,8 +1,6 @@
 import inspect
 from typing import get_type_hints, TypeVar
 
-T = TypeVar('T')
-
 
 class DataObject(object):
     pass
@@ -28,7 +26,18 @@ def has_init_argument(clazz):
     return False
 
 
-def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_attr=True) -> T:
+def _parse_tuple_str(tuple_str):
+    striped_str = tuple_str.strip()
+    if striped_str.startswith('(') and striped_str.endswith(')'):
+        return eval(striped_str, {"__builtins__": {}}, {})
+    else:
+        raise RuntimeError('需要的项目')
+
+
+T = TypeVar('T')
+
+
+def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_attr=True, reserved_classes=None) -> T:
     """
     把CommentedMap-CommentedSeq结构的yaml对象（树状结构），转换为预定义好类型的类实例，
     本函数是个递归函数，将按深度优先遍历yaml树的所有节点，并逐级对应到clazz指定的类属性中
@@ -40,6 +49,7 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
     :param init_empty_attr: 是否初始化dict_list_obj中没有的属性（但是clazz定义中有）
         如果为True，那么把dict_list_obj中没有的属性都初始化为None
         如果为False，那么什么都不做，结果就是生成的对象中根本没有这个属性
+    :param reserved_classes: 如果在dict_list_obj结构中，有一些特殊的对象，他们是dict或者list子类的实例，不需要按照dict或者list解析，而是直接作为属性放在转化后的对象中，就可以把它放在这个参数里
     :return:
     注意: 这里跟generic泛型相关的一些判断，比如__origin__, __args__都是低于python3.7版本的，更高版本还有待完善
     参考：
@@ -51,7 +61,10 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
     if clazz is None and not reserve_extra_attr:
         return None
 
-    if isinstance(dict_list_obj, list):
+    if reserved_classes is not None and clazz in reserved_classes:
+        return dict_list_obj
+
+    elif isinstance(dict_list_obj, list):
         new_list = []
         if clazz is None:
             item_type = None
@@ -67,7 +80,7 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
             item_type = clazz
 
         for item in dict_list_obj:
-            typed_obj = from_dict_list(item, item_type, reserve_extra_attr, init_empty_attr)
+            typed_obj = from_dict_list(item, item_type, reserve_extra_attr, init_empty_attr, reserved_classes)
             if typed_obj is not None:
                 new_list.append(typed_obj)
         return new_list
@@ -87,13 +100,15 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
                 attr_type = types[k]
             else:
                 attr_type = None
-            typed_obj = from_dict_list(v, attr_type, reserve_extra_attr, init_empty_attr)
+            typed_obj = from_dict_list(v, attr_type, reserve_extra_attr, init_empty_attr, reserved_classes)
             if typed_obj is not None:
                 setattr(obj, k, typed_obj)
 
+        '''初始化那些在types中存在，dict_list数据中没有属性'''
         if init_empty_attr and types is not None:
             for k in types.keys():
-                if k not in dict_list_obj:
+                if k not in dict_list_obj and not hasattr(obj, k):
+                    # 注意一下，如果有个属性在构造函数中初始化了，它也会在types中存在
                     setattr(obj, k, None)
 
         return obj
@@ -102,7 +117,10 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
             return dict_list_obj
         elif type(dict_list_obj) == clazz:
             return dict_list_obj
+        elif hasattr(clazz, '__origin__') and clazz.__origin__ == tuple and isinstance(dict_list_obj, str):
+            return _parse_tuple_str(dict_list_obj)
         else:
+            # 如果dict_list_obj是个基本类型(比如字符串),但对应的是定义clazz一个类, 那么假设该类的构造函数, 正好接收这个类的参数
             return clazz(dict_list_obj)
     else:
         # raise TypeError('需要转换的对象，是一个出乎意料的类型：{}，\n\r{}'.format(type(yaml_obj), yaml_obj))
