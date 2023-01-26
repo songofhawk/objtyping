@@ -1,5 +1,8 @@
 import inspect
-from typing import get_type_hints, TypeVar
+from datetime import datetime, date, timedelta
+from decimal import Decimal
+from numbers import Number
+from typing import get_type_hints, TypeVar, Set, Any
 
 
 class DataObject(object):
@@ -37,7 +40,7 @@ def _parse_tuple_str(tuple_str):
 T = TypeVar('T')
 
 
-def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_attr=True, reserved_classes=None) -> T:
+def from_primitive(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_attr=True, reserved_classes=None) -> T:
     """
     把CommentedMap-CommentedSeq结构的yaml对象（树状结构），转换为预定义好类型的类实例，
     本函数是个递归函数，将按深度优先遍历yaml树的所有节点，并逐级对应到clazz指定的类属性中
@@ -80,7 +83,7 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
             item_type = clazz
 
         for item in dict_list_obj:
-            typed_obj = from_dict_list(item, item_type, reserve_extra_attr, init_empty_attr, reserved_classes)
+            typed_obj = from_primitive(item, item_type, reserve_extra_attr, init_empty_attr, reserved_classes)
             if typed_obj is not None:
                 new_list.append(typed_obj)
         return new_list
@@ -100,7 +103,7 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
                 attr_type = types[k]
             else:
                 attr_type = None
-            typed_obj = from_dict_list(v, attr_type, reserve_extra_attr, init_empty_attr, reserved_classes)
+            typed_obj = from_primitive(v, attr_type, reserve_extra_attr, init_empty_attr, reserved_classes)
             if typed_obj is not None:
                 setattr(obj, k, typed_obj)
 
@@ -129,32 +132,100 @@ def from_dict_list(dict_list_obj, clazz: T, reserve_extra_attr=True, init_empty_
 
 
 def is_basic_type(obj):
-    if isinstance(obj, str) or \
-            isinstance(obj, int) or isinstance(obj, float) or isinstance(obj, complex):
+    if isinstance(obj, str) \
+            or isinstance(obj, int) \
+            or isinstance(obj, float) \
+            or isinstance(obj, complex) \
+            or isinstance(obj, bool) \
+            or isinstance(obj, datetime) \
+            or isinstance(obj, date) \
+            or isinstance(obj, timedelta) \
+            or isinstance(obj, Decimal) \
+            or isinstance(obj, bytes) \
+            or obj is None:
         return True
     else:
         return False
 
 
-def to_dict_list(obj):
-    """
-    把指定的对象，转换成dict-list结构
-    :param obj: 要转换的对象，通常是一个类实例
-    :return: 一个dict-list嵌套的结构，可用于序列化
-    """
-    if isinstance(obj, list):
-        list1 = []
-        for item in obj:
-            list1.append(to_dict_list(item))
-        return list1
-    elif isinstance(obj, dict):
-        dict1 = {}
-        for k, v in obj.items():
-            dict1[k] = to_dict_list(v)
-    elif is_basic_type(obj):
-        return obj
-    else:
-        dict1 = {}
-        for k, v in obj.__dict__.items():
-            dict1[k] = to_dict_list(v)
-        return dict1
+class Primitiver:
+    DEFAULT_DATE_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
+    DEFAULT_DATE_FORMAT = '%Y-%m-%d'
+
+    max_depth = 6
+    ignore_protected = True
+    format_datetime = True
+    ignores = None
+
+    def __init__(self, root):
+        """
+        :param root: 要转换的对象，通常是一个类实例
+        """
+        self.root = root
+        self.all_objs = set()
+        self.ignores = []
+
+    def convert(self):
+        return self._convert(self.root, 0, set())
+
+    def _convert(self, obj:Any, depth:int, objs_chain:Set):
+        """
+        把指定的对象，转换成dict-list结构
+        :param obj: 要转换的对象，通常是一个类实例
+        :param depth:
+        :return: 一个dict-list嵌套的结构，可用于序列化
+        """
+        if obj is None or depth > self.max_depth:
+            return None
+        if not is_basic_type(obj) and id(obj) in objs_chain:
+            return f'$$recursive reference:{str(obj)}$$'
+        else:
+            objs_chain.add(id(obj))
+
+        if isinstance(obj, list) or isinstance(obj, tuple) or isinstance(obj, set):
+            list1 = []
+            for item in obj:
+                list1.append(self._convert(item, depth + 1, set(objs_chain)))
+            return list1
+        elif isinstance(obj, dict):
+            dict1 = {}
+            for k, v in obj.items():
+                attr = str(k)
+                if attr in self.ignores:
+                    continue
+                dict1[attr] = self._convert(v, depth + 1, set(objs_chain))
+            return dict1
+        elif type(obj).__name__ == 'Row' and callable(getattr(obj, 'keys', None)):
+            # SQLAlchemy 返回的数据行对象，直接转成dict
+            return dict(obj)
+        elif hasattr(obj, '__dict__'):
+            # 如果是个自定义对象
+            dict1 = {}
+            items = list(obj.__dict__.items())  # 复制一份，避免遍历过程中改变
+            for k, v in items:
+                if self.ignore_protected and k.startswith('_'):
+                    continue
+                if k in self.ignores:
+                    continue
+                dict1[k] = self._convert(v, depth + 1, set(objs_chain))
+            return dict1
+        else:
+            # 如果以上都不是，认为它是个基本数据类型
+            if isinstance(obj, datetime) and self.format_datetime:
+                return obj.strftime(self.DEFAULT_DATE_TIME_FORMAT)
+            elif isinstance(obj, date) and self.format_datetime:
+                return obj.strftime(self.DEFAULT_DATE_FORMAT)
+            elif isinstance(obj, Number):
+                return obj
+            else:
+                # 直接转成字符串
+                return str(obj)
+
+
+def to_primitive(obj, max_depth=100, ignore_protected=True, format_date_time=True, ignores=None):
+    pri = Primitiver(obj)
+    pri.max_depth = max_depth
+    pri.ignore_protected = ignore_protected
+    pri.format_datetime = format_date_time
+    pri.ignores = [] if ignores is None else ignores
+    return pri.convert()

@@ -32,8 +32,8 @@ if __name__ == '__main__':
           y: female
           z: 13    
     ''')
-    typed_obj = objtyping.from_dict_list(yaml_obj, A)
-    d_l_obj = objtyping.to_dict_list(typed_obj)
+    typed_obj = objtyping.from_primitive(yaml_obj, A)
+    d_l_obj = objtyping.to_primitive(typed_obj)
     yaml.dump(d_l_obj, sys.stdout)
 
     sys.exit()

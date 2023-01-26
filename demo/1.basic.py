@@ -18,7 +18,7 @@ class Company:
 
 
 if __name__ == '__main__':
-    company1 = objtyping.from_dict_list({
+    company1 = objtyping.from_primitive({
         'name': 'Apple',
         'revenue': 18.5,
         'employees': [{
