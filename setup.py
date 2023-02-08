@@ -8,7 +8,7 @@ setuptools.setup(
     name="objtyping",
 
     # version of the module
-    version="0.5.1",
+    version="0.5.2",
 
     # Name of Author
     author="Song Hui",

@@ -177,6 +177,9 @@ class Primitiver:
         """
         if obj is None or depth > self.max_depth:
             return None
+        if inspect.isfunction(obj) or inspect.ismethod(obj):
+            return None
+
         if not is_basic_type(obj) and id(obj) in objs_chain:
             return f'$$recursive reference:{str(obj)}$$'
         else:
