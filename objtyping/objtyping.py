@@ -166,6 +166,14 @@ class Primitiver:
         self.ignores = []
 
     def convert(self):
+        objtype = type(self.root)
+        if objtype.__name__ == 'BaseQuery' and objtype.__module__ and objtype.__module__.find('sqlalchemy') >= 0:
+            # SqlAlchemy 的 BaseQuery 对象，承载了太多属性，特别是在一个复杂项目中，还可能关联到 celery 对象，读取时会加锁，性能很差；
+            # 而且调用端大概率不是真的想转换这个对象，而是想转换查询结果
+            print('It seems you give a SqlAlchemy Query object to convert, which is not supported now.'
+                  'Do you want a query result object instead?')
+            return None
+
         return self._convert(self.root, 0, set())
 
     def _convert(self, obj:Any, depth:int, objs_chain:Set):
@@ -175,57 +183,61 @@ class Primitiver:
         :param depth:
         :return: 一个dict-list嵌套的结构，可用于序列化
         """
-        if obj is None or depth > self.max_depth:
-            return None
-        if inspect.isfunction(obj) or inspect.ismethod(obj):
-            return None
+        try:
+            if obj is None or depth > self.max_depth:
+                return None
+            if inspect.isfunction(obj) or inspect.ismethod(obj):
+                return None
 
-        if not is_basic_type(obj) and id(obj) in objs_chain:
-            return f'$$recursive reference:{str(obj)}$$'
-        else:
-            objs_chain.add(id(obj))
-
-        if isinstance(obj, list) or isinstance(obj, tuple) or isinstance(obj, set):
-            list1 = []
-            for item in obj:
-                list1.append(self._convert(item, depth + 1, set(objs_chain)))
-            return list1
-        elif isinstance(obj, dict):
-            dict1 = {}
-            for k, v in obj.items():
-                attr = str(k)
-                if attr in self.ignores:
-                    continue
-                dict1[attr] = self._convert(v, depth + 1, set(objs_chain))
-            return dict1
-        elif type(obj).__name__ == 'Row' and callable(getattr(obj, 'keys', None)):
-            # SQLAlchemy 返回的数据行对象，直接转成dict
-            return dict(obj)
-        elif hasattr(obj, '__dict__'):
-            # 如果是个自定义对象
-            dict1 = {}
-            items = list(obj.__dict__.items())  # 复制一份，避免遍历过程中改变
-            for k, v in items:
-                if self.ignore_protected and k.startswith('_'):
-                    continue
-                if k in self.ignores:
-                    continue
-                dict1[k] = self._convert(v, depth + 1, set(objs_chain))
-            return dict1
-        else:
-            # 如果以上都不是，认为它是个基本数据类型
-            if isinstance(obj, datetime) and self.format_datetime:
-                return obj.strftime(self.DEFAULT_DATE_TIME_FORMAT)
-            elif isinstance(obj, date) and self.format_datetime:
-                return obj.strftime(self.DEFAULT_DATE_FORMAT)
-            elif isinstance(obj, Number):
-                return obj
+            if not is_basic_type(obj) and id(obj) in objs_chain:
+                return f'$$recursive reference:{str(obj)}$$'
             else:
-                # 直接转成字符串
-                return str(obj)
+                objs_chain.add(id(obj))
+
+            if isinstance(obj, list) or isinstance(obj, tuple) or isinstance(obj, set):
+                list1 = []
+                for item in obj:
+                    list1.append(self._convert(item, depth + 1, set(objs_chain)))
+                return list1
+            elif isinstance(obj, dict):
+                dict1 = {}
+                for k, v in obj.items():
+                    attr = str(k)
+                    if attr in self.ignores:
+                        continue
+                    dict1[attr] = self._convert(v, depth + 1, set(objs_chain))
+                return dict1
+            elif type(obj).__name__ == 'Row' and callable(getattr(obj, 'keys', None)):
+                # SQLAlchemy 返回的数据行对象，直接转成dict
+                return dict(obj)
+            elif hasattr(obj, '__dict__'):
+                # 如果是个自定义对象
+                dict1 = {}
+                items = list(obj.__dict__.items())  # 复制一份，避免遍历过程中改变
+                for k, v in items:
+                    if self.ignore_protected and k.startswith('_'):
+                        continue
+                    if k in self.ignores:
+                        continue
+                    dict1[k] = self._convert(v, depth + 1, set(objs_chain))
+                return dict1
+            else:
+                # 如果以上都不是，认为它是个基本数据类型
+                if isinstance(obj, datetime) and self.format_datetime:
+                    return obj.strftime(self.DEFAULT_DATE_TIME_FORMAT)
+                elif isinstance(obj, date) and self.format_datetime:
+                    return obj.strftime(self.DEFAULT_DATE_FORMAT)
+                elif isinstance(obj, Number):
+                    return obj
+                else:
+                    # 其他类型直接转为字符串
+                    return str(obj)
+        except Exception as e:
+            print(f'convert "{type(obj)}" to primitive error:{e}')
+            return None
 
 
-def to_primitive(obj, max_depth=100, ignore_protected=True, format_date_time=True, ignores=None):
+def to_primitive(obj, max_depth=10, ignore_protected=True, format_date_time=True, ignores=None):
     pri = Primitiver(obj)
     pri.max_depth = max_depth
     pri.ignore_protected = ignore_protected
