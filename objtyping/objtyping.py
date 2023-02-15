@@ -152,7 +152,7 @@ class Primitiver:
     DEFAULT_DATE_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
     DEFAULT_DATE_FORMAT = '%Y-%m-%d'
 
-    max_depth = 6
+    max_depth = 100  # 最大深度，超过最大深度的数据，会返回null，实际调用的时候，这个值会被 to_primitive 函数给定的 max_depth 参数覆盖
     ignore_protected = True
     format_datetime = True
     ignores = None
@@ -237,7 +237,7 @@ class Primitiver:
             return None
 
 
-def to_primitive(obj, max_depth=10, ignore_protected=True, format_date_time=True, ignores=None):
+def to_primitive(obj, max_depth=20, ignore_protected=True, format_date_time=True, ignores=None):
     pri = Primitiver(obj)
     pri.max_depth = max_depth
     pri.ignore_protected = ignore_protected
