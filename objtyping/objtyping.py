@@ -166,15 +166,21 @@ class Primitiver:
         self.ignores = []
 
     def convert(self):
-        objtype = type(self.root)
+        if self._is_sqlalchemy_query(self.root):
+            return None
+        return self._convert(self.root, 0, set())
+
+    @staticmethod
+    def _is_sqlalchemy_query(obj):
+        objtype = type(obj)
         if objtype.__name__ == 'BaseQuery' and objtype.__module__ and objtype.__module__.find('sqlalchemy') >= 0:
             # SqlAlchemy 的 BaseQuery 对象，承载了太多属性，特别是在一个复杂项目中，还可能关联到 celery 对象，读取时会加锁，性能很差；
             # 而且调用端大概率不是真的想转换这个对象，而是想转换查询结果
-            print('It seems you give a SqlAlchemy Query object to convert, which is not supported now.'
+            print(f'It seems you give a SqlAlchemy Query object to convert, which is not supported now.'
                   'Do you want a query result object instead?')
-            return None
-
-        return self._convert(self.root, 0, set())
+            return True
+        else:
+            return False
 
     def _convert(self, obj:Any, depth:int, objs_chain:Set):
         """
@@ -187,6 +193,8 @@ class Primitiver:
             if obj is None or depth > self.max_depth:
                 return None
             if inspect.isfunction(obj) or inspect.ismethod(obj):
+                return None
+            if self._is_sqlalchemy_query(obj):
                 return None
 
             if not is_basic_type(obj) and id(obj) in objs_chain:
