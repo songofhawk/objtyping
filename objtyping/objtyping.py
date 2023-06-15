@@ -1,6 +1,7 @@
 import inspect
 from datetime import datetime, date, timedelta
 from decimal import Decimal
+from enum import Enum
 from numbers import Number
 from typing import get_type_hints, TypeVar, Set, Any
 
@@ -217,7 +218,16 @@ class Primitiver:
                 return dict1
             elif type(obj).__name__ == 'Row' and callable(getattr(obj, 'keys', None)):
                 # SQLAlchemy 返回的数据行对象，直接转成dict
-                return dict(obj)
+                row_dict = dict(obj)
+                enum_value_dict = dict()
+                for k, v in row_dict.items():
+                    if isinstance(v, Enum):
+                        # 枚举类型无法直接序列化，只能取值
+                        row_dict[k] = v.name
+                        enum_value_dict[f'{k}__value'] = v.value    # 不能在遍历dict过程中，增加属性值，所以临时保存在另一个dict中
+                row_dict.update(enum_value_dict)
+                return row_dict
+
             elif hasattr(obj, '__dict__'):
                 # 如果是个自定义对象
                 dict1 = {}
